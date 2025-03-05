@@ -1,0 +1,126 @@
+---
+title: bede-relatives
+authors:
+  - name: Stefano Coretta
+    affiliation: University of Edinbugh
+---
+
+## The data
+
+```{r}
+#| label: setup
+
+library(tidyverse)
+theme_set(theme_light())
+library(readxl)
+library(brms)
+library(ggdist)
+```
+
+
+```{r}
+#| label: rels
+
+rels <- read_excel("data/Relatives.xlsx", sheet = "Bede no Vorlage")
+
+colnames(rels) <- c("text", "file", "pde", "latin", "latin_cx", "parallel_set", "parallel_set_id", "dem", "mention", "include", "position", "correlative", "the", "divinity", "generic", "be", "antecedent_type", "antecedent", "is_called", "extraposed", "v_interv", "n_interv", "detail", "notes")
+
+rels <- rels |> 
+  add_count(name = "grand_tot") |> 
+  mutate(
+    dem = recode_factor(dem, n = "no", se = "SE", that = "THAT", thatte = "THATTE"),
+    mention = recode_factor(mention, n = "other", y = "second"),
+    position = recode_factor(position, n = "other", y = "early"),
+    divinity = recode_factor(divinity, n = "other", y = "divinity"),
+    mention_position = interaction(mention, position, lex.order = TRUE),
+    ante_name = ifelse(antecedent == "name", "name", "other")
+  )
+
+rels_counts <- rels %>%
+  filter(divinity == "other", dem != "THATTE") %>%
+  count(dem, ante_name, position, grand_tot) %>%
+  drop_na() |> 
+  droplevels()
+```
+
+```{r}
+#| label: rel-bm
+
+rel_bm <- brm(
+  n ~
+    0 + dem:ante_name:position + offset(log(grand_tot)),
+  data = rels_counts,
+  family = poisson,
+  cores = 4,
+  file = "data/cache/rel_bm",
+  prior = c(
+    prior(normal(4, 1.5), class = b)
+  ),
+  seed = 9899
+)
+```
+
+```{r}
+#| label: rel-bm-summ
+summary(rel_bm)
+```
+
+```{r}
+#| label: rel-bm-conds
+conds <- make_conditions(rels_counts, c("dem")) %>%
+  mutate(grand_tot = 100)
+
+conditional_effects(rel_bm, effects = "position:ante_name", conditions = conds)
+```
+
+```{r}
+#| label: rel-bm-draws
+
+rel_bm_draws <- as_draws_df(rel_bm)
+
+new_data <- expand_grid(
+  dem = c("no", "SE", "THAT"),
+  ante_name = c("other", "name"),
+  position = c("other", "early"),
+  grand_tot = 100
+)
+
+headings <- new_data %>%
+  unite("heads", dem:position, sep = ".") %>%
+  pull(heads)
+
+rel_bm_cond <- posterior_epred(rel_bm, newdata = new_data)
+colnames(rel_bm_cond) <- headings
+
+rel_bm_cond <- as_tibble(rel_bm_cond)
+
+rel_bm_cond_l <- rel_bm_cond %>%
+  pivot_longer(everything(), names_to = "condition") %>%
+  separate(
+    condition,
+    c("dem", "ante_name", "position"),
+    sep = "\\."
+  ) %>%
+  arrange(dem, ante_name, position)
+```
+
+```{r}
+#| label: fig-preds
+
+rel_bm_cond_l |> 
+  ggplot(aes(dem, value)) +
+  stat_interval(.width = c(0.5, 0.7, 0.9, 0.95), linewidth = 4) +
+  facet_grid(position ~ ante_name, labeller = label_both) +
+  coord_cartesian(ylim = c(0, 50)) +
+  scale_color_brewer(direction = -1) +
+  # geom_rect(data = hilite,
+  #           aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+  #           fill = NA,
+  #           colour = "#d95f02",
+  #           inherit.aes = FALSE) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  labs(
+    x = "Demonstrative", y = "Percentage"
+  )
+```
+

@@ -124,3 +124,9 @@ rel_bm_cond_l |>
   )
 ```
 
+## UOCABULO
+
+```{r}
+uoca <- read_excel("data/Relatives.xlsx", sheet = "Bede naming stats")
+```
+

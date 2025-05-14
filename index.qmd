@@ -142,7 +142,9 @@ relatives_narrative <- read_xlsx("data/Relatives.xlsx", sheet = "Bede Narrative"
 colnames(relatives_narrative) <- c("text", "file", "PDE", "latin", "latin_cxn", "parallel_set", "parallel_set_id", "dem", "mention", "include", "position", "correlative", "the", "divinity", "generic", "be", "detail", "antecedent", "is_called", "extraposed", "verb_only_intervenes", "noun_only_intervenes", "detail2", "notes")
 
 relatives_narrative <- relatives_narrative |>
+  group_by(mention, position) |> 
   add_count(name = "grand_tot") |>
+  ungroup() |> 
   mutate(
     dem = recode_factor(dem, n = "no"),
     mention = recode_factor(mention, n = "other", y = "second"),
@@ -221,7 +223,7 @@ rel_narr_bm_cond_l %>%
   ggplot(aes(dem, value)) +
   stat_interval(.width = c(0.5, 0.7, 0.9, 0.95), linewidth = 4) +
   facet_grid(position ~ mention, labeller = label_both) +
-  coord_cartesian(ylim = c(0, 50)) +
+  coord_cartesian(ylim = c(0, 100)) +
   scale_color_brewer(direction = -1) +
   # geom_rect(data = hilite,
   #           aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
@@ -235,5 +237,35 @@ rel_narr_bm_cond_l %>%
   )
 
 ggsave("img/rel-narr-bm.png", width = 7, height = 5)
+```
+
+## Bede's Narrative with potential cases
+
+```{r}
+#| label: relatives-narrative-potential
+
+relatives_narrative <- read_xlsx("data/Relatives.xlsx", sheet = "Bede Narrative") |>
+  # Remove observations to be excluded
+  filter(include == "y")
+
+colnames(relatives_narrative) <- c("text", "file", "PDE", "latin", "latin_cxn", "parallel_set", "parallel_set_id", "dem", "mention", "include", "position", "correlative", "the", "divinity", "generic", "be", "detail", "antecedent", "is_called", "extraposed", "verb_only_intervenes", "noun_only_intervenes", "detail2", "notes")
+
+relatives_narrative <- relatives_narrative |>
+  group_by(mention, position) |> 
+  add_count(name = "grand_tot") |>
+  ungroup() |> 
+  mutate(
+    dem = recode_factor(dem, n = "no"),
+    mention = recode_factor(mention, n = "other", y = "second"),
+    position = recode_factor(position, n = "other", y = "early"),
+    divinity = recode_factor(divinity, n = "other", y = "divinity"),
+    mention_position = interaction(mention, position, lex.order = TRUE),
+    ante_name = ifelse(antecedent == "name", "name", "other")
+  )
+
+relatives_narrative_counts <- relatives_narrative |>
+  filter(divinity == "other") |>
+  count(dem, mention, position, grand_tot) |>
+  drop_na()
 ```
 

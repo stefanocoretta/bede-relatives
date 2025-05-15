@@ -151,12 +151,22 @@ relatives_narrative <- relatives_narrative |>
     position = recode_factor(position, n = "other", y = "early"),
     divinity = recode_factor(divinity, n = "other", y = "divinity"),
     mention_position = interaction(mention, position, lex.order = TRUE),
-    ante_name = ifelse(antecedent == "name", "name", "other")
+    ante_name = ifelse(antecedent == "name", "name", "other"),
+    mention_potential = case_when(
+      mention == "other" & str_detect(detail, "^[Pp]otential") ~ "second",
+      TRUE ~ mention
+    ),
+    mention_potential = as.factor(mention_potential)
   )
 
 relatives_narrative_counts <- relatives_narrative |>
   filter(divinity == "other") |>
   count(dem, mention, position, grand_tot) |>
+  drop_na()
+
+relatives_narrative_potential_counts <- relatives_narrative |>
+  filter(divinity == "other") |>
+  count(dem, mention_potential, position, grand_tot) |>
   drop_na()
 ```
 
@@ -180,7 +190,7 @@ rel_narr_bm <- brm(
 ```
 
 ```{r}
-#| label: rel-bm-2-cond
+#| label: rel-narr-bm-cond
 
 rel_narr_bm_draws <- as_draws_df(rel_narr_bm)
 
@@ -211,7 +221,7 @@ rel_narr_bm_cond_l <- rel_narr_cond %>%
 ```
 
 ```{r}
-#| label: rel-bm-cond-ael
+#| label: rel-narr-bm-cond-ael
 
 # hilite <- tibble(
 #   mention = "second", position = "early", dem = "SE",
@@ -244,28 +254,79 @@ ggsave("img/rel-narr-bm.png", width = 7, height = 5)
 ```{r}
 #| label: relatives-narrative-potential
 
-relatives_narrative <- read_xlsx("data/Relatives.xlsx", sheet = "Bede Narrative") |>
-  # Remove observations to be excluded
-  filter(include == "y")
+rel_narr_pot_bm <- brm(
+  n ~
+    dem * mention_potential * position +
+    offset(log(grand_tot)),
+  data = relatives_narrative_potential_counts,
+  family = poisson,
+  cores = 4,
+  file = "data/cache/rel_narr_pot_bm",
+  prior = c(
+    prior(normal(4, 1.5), class = Intercept),
+    prior(normal(0, 2), class = b)
+  ),
+  seed = 9899
+)
+```
 
-colnames(relatives_narrative) <- c("text", "file", "PDE", "latin", "latin_cxn", "parallel_set", "parallel_set_id", "dem", "mention", "include", "position", "correlative", "the", "divinity", "generic", "be", "detail", "antecedent", "is_called", "extraposed", "verb_only_intervenes", "noun_only_intervenes", "detail2", "notes")
+```{r}
+#| label: rel-narr-pot-bm-cond
 
-relatives_narrative <- relatives_narrative |>
-  group_by(mention, position) |> 
-  add_count(name = "grand_tot") |>
-  ungroup() |> 
-  mutate(
-    dem = recode_factor(dem, n = "no"),
-    mention = recode_factor(mention, n = "other", y = "second"),
-    position = recode_factor(position, n = "other", y = "early"),
-    divinity = recode_factor(divinity, n = "other", y = "divinity"),
-    mention_position = interaction(mention, position, lex.order = TRUE),
-    ante_name = ifelse(antecedent == "name", "name", "other")
+rel_narr_pot_bm_draws <- as_draws_df(rel_narr_pot_bm)
+
+new_data_3 <- expand_grid(
+  dem = c("no", "se", "that", "thatte"),
+  position = c("other", "early"),
+  mention_potential = c("other", "second"),
+  grand_tot = 100
+)
+
+headings <- new_data_3 %>%
+  unite("heads", dem:mention_potential, sep = ".") %>%
+  pull(heads)
+
+rel_narr_pot_cond <- posterior_epred(rel_narr_pot_bm, newdata = new_data_3)
+colnames(rel_narr_pot_cond) <- headings
+
+rel_narr_pot_cond <- as_tibble(rel_narr_pot_cond)
+
+rel_narr_pot_bm_cond_l <- rel_narr_pot_cond %>%
+  pivot_longer(everything(), names_to = "condition") %>%
+  separate(
+    condition,
+    c("dem", "position", "mention_potential"),
+    sep = "\\."
+  ) %>%
+  arrange(dem, position, mention_potential)
+```
+
+```{r}
+#| label: rel-narr-pot-bm-cond-ael
+
+# hilite <- tibble(
+#   mention = "second", position = "early", dem = "SE",
+#   xmin = 1.75, xmax = 2.25,
+#   ymin = 0, ymax = 15
+# )
+
+rel_narr_pot_bm_cond_l %>%
+  ggplot(aes(dem, value)) +
+  stat_interval(.width = c(0.5, 0.7, 0.9, 0.95), linewidth = 4) +
+  facet_grid(position ~ mention_potential, labeller = label_both) +
+  coord_cartesian(ylim = c(0, 100)) +
+  scale_color_brewer(direction = -1) +
+  # geom_rect(data = hilite,
+  #           aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+  #           fill = NA,
+  #           colour = "#d95f02",
+  #           inherit.aes = FALSE) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  labs(
+    title = "Bede Narrative (potential)",
+    x = "Demonstrative", y = "Percentage"
   )
 
-relatives_narrative_counts <- relatives_narrative |>
-  filter(divinity == "other") |>
-  count(dem, mention, position, grand_tot) |>
-  drop_na()
+ggsave("img/rel-narr-pot-bm.png", width = 7, height = 5)
 ```
 
